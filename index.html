@@ -116,6 +116,18 @@
             margin: 20px 0;
             display: none;
         }
+
+        .toggle-visibility {
+            cursor: pointer;
+            position: absolute;
+            right: 10px;
+            top: 36px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            color: #6b7280;
+            outline: none;
+        }
     </style>
 </head>
 <body>
@@ -134,11 +146,14 @@
         </div>
         <div class="input-group">
             <label class="input-label">📏 Radius (meters)</label>
-            <input type="number" id="radius" class="input-field" value="500" min="10" max="5000">
+            <input type="number" id="radius" class="input-field" value="10000" min="10" max="50000">
         </div>
         <div class="input-group">
             <label class="input-label">🔑 Google Maps API Key</label>
-            <input type="text" id="apiKey" class="input-field" placeholder="Enter your API key">
+            <div style="position: relative;">
+                <input type="password" id="apiKey" class="input-field" placeholder="Enter your API key">
+                <button class="toggle-visibility" onclick="toggleApiKeyVisibility()">👁️</button>
+            </div>
         </div>
         <div class="input-group">
             <label class="input-label">🏷️ Business Category</label>
@@ -264,6 +279,19 @@
     <script>
         let results = [];
 
+        function toggleApiKeyVisibility() {
+            const input = document.getElementById('apiKey');
+            const button = document.querySelector('.toggle-visibility');
+
+            if (input.type === 'password') {
+                input.type = 'text';
+                button.textContent = '🙈'; // Change the icon to indicate hide
+            } else {
+                input.type = 'password';
+                button.textContent = '👁️'; // Change the icon to indicate show
+            }
+        }
+
         async function fetchPOIs() {
             const lat = parseFloat(document.getElementById('latitude').value);
             const lng = parseFloat(document.getElementById('longitude').value);
@@ -287,33 +315,51 @@
             resultsBody.innerHTML = '';
             results = []; // Reset results
 
-            const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radius}&type=${category}&key=${apiKey}`;
-            
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
+            const types = [category]; // Using the selected category
 
-                if (data.status === 'OK') {
-                    data.results.forEach(place => {
-                        results.push({
-                            name: place.name || 'Unnamed Place',
-                            address: place.vicinity || 'No Address Available',
-                            distance: place.geometry.location ? 
-                                calculateDistance(lat, lng, place.geometry.location.lat(), place.geometry.location.lng()).toFixed(2) : 'N/A'
+            for (let placeType of types) {
+                let url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radius}&type=${placeType}&key=${apiKey}`;
+                const unique_ids = new Set();
+
+                while (true) {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    if (data.status === 'OK') {
+                        data.results.forEach(place => {
+                            const place_id = place.place_id;
+                            if (!unique_ids.has(place_id)) {
+                                unique_ids.add(place_id);
+                                results.push({
+                                    name: place.name || 'Unnamed Place',
+                                    address: place.vicinity || 'No Address Available',
+                                    distance: place.geometry.location ? 
+                                        calculateDistance(lat, lng, place.geometry.location.lat(), place.geometry.location.lng()).toFixed(2) : 'N/A'
+                                });
+                                const row = resultsBody.insertRow();
+                                row.insertCell(0).innerText = results[results.length - 1].name;
+                                row.insertCell(1).innerText = results[results.length - 1].address;
+                                row.insertCell(2).innerText = results[results.length - 1].distance;
+                            }
                         });
-                        const row = resultsBody.insertRow();
-                        row.insertCell(0).innerText = results[results.length - 1].name;
-                        row.insertCell(1).innerText = results[results.length - 1].address;
-                        row.insertCell(2).innerText = results[results.length - 1].distance;
-                    });
-                    document.getElementById('resultsSection').style.display = 'block';
-                    document.getElementById('downloadBtn').style.display = 'block'; // Show download button
-                } else {
-                    showError('No results found or invalid API key.');
+
+                        // Check for the next page
+                        if (data.next_page_token) {
+                            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before requesting the next page
+                            url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radius}&type=${placeType}&key=${apiKey}&pagetoken=${data.next_page_token}`;
+                        } else {
+                            break; // No more pages
+                        }
+                    } else {
+                        showError('No results found or invalid API key.');
+                        break;
+                    }
                 }
-            } catch (error) {
-                showError('Error fetching data. Please try again.');
             }
+
+            // Show results
+            document.getElementById('resultsSection').style.display = 'block';
+            document.getElementById('downloadBtn').style.display = results.length > 0 ? 'block' : 'none'; // Show download button if there are results
         }
 
         function downloadResults() {
